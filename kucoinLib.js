@@ -40,6 +40,8 @@ let api = function everything(APIKEY = false, APISecret = false, PassPhrase = fa
 
 
 
+    // public   \\\\
+
     this.serverTime = () => {
         const params = {
             baseURL: api,
@@ -86,13 +88,67 @@ let api = function everything(APIKEY = false, APISecret = false, PassPhrase = fa
         if (this.fetchFloats) return parseAllPropertiesToFloat(data); else return data;
     }
 
-    this.accountBalance = () => {
+    this.ticker = (symbol = undefined) => {
+        const params = {
+            baseURL: api,
+            path: symbol ? '/api/v1/market/orderbook/level1' : '/api/v1/market/allTickers',
+            method: 'get'
+        }
+        const options = {
+            symbol
+        }
+
+        return request(params, options);
+    }
+
+    this.lastPrice = async (symbol = undefined) => {
+        const params = {
+            baseURL: api,
+            path: symbol ? '/api/v1/market/orderbook/level1' : '/api/v1/market/allTickers',
+            method: 'get'
+        }
+        const options = {
+            symbol
+        }
+
+        const response = await request(params, options);
+        if (response.error) return response;
+
+        
+    }
+
+    // public   ////
+
+    this.accountBalance = async (currency = undefined, type = undefined, activeAssetsOnly = false, mappedBalance = false) => {
         const params = {
             method: 'get',
             baseURL: api,
             path: '/api/v1/accounts'
         }
-        return request(params);
+
+        const options = {
+            currency,
+            type
+        }
+
+        let response = await request(params, options);
+        if (response.error) return response;
+
+        if (activeAssetsOnly) {
+            response = response.filter(balanceObject => balanceObject.balance != 0);
+        }
+
+        if (mappedBalance) {
+            const tempData = {};
+            tempData.symbols = [];
+            for (let balanceObject of response) {
+                tempData.symbols.push(balanceObject.currency);
+                tempData[balanceObject.currency] = balanceObject;
+            }
+            response = tempData;
+        }
+
+        return response;
     }
 
 
@@ -100,6 +156,9 @@ let api = function everything(APIKEY = false, APISecret = false, PassPhrase = fa
 
 
     const request = async (params, options = {}, type = 'default') => {
+        for (let key of Object.keys(options)) if (options[key] == undefined) delete options[key];
+        if (Object.keys(options).length == 0) options = '';
+
         params.headers = {
             ...axios.defaults.headers.common,
             ...axios.defaults.headers[params.method],
@@ -111,26 +170,20 @@ let api = function everything(APIKEY = false, APISecret = false, PassPhrase = fa
         // if signed
 
         const timestamp = Date.now() + Kucoin.timestamp_offset;
-        const string_to_encode = `${timestamp}${params.method.toUpperCase()}${params.path}${params.path}` +
-            `${(params.method == 'get' || params.method == 'delete') ?
-                makeQueryString(options)
-                :
-                ''
-            }`;
+        const string_to_encode = `${timestamp}${params.method.toUpperCase()}${params.path}${JSON.stringify(options)}`;
         const signature = crypto.createHmac('sha256', this.APISECRET).update(string_to_encode).digest('base64');
         params.headers["KC-API-TIMESTAMP"] = timestamp;
-        console.log(string_to_encode)
         params.headers["KC-API-SIGN"] = signature;
         // if signed
-
+        if (this.query) console.log(string_to_encode)
         try {
             let startTime = Date.now(), latency;
             let response = await axios({
                 method: params.method,
                 url: params.baseURL + params.path,
-                params: options,
+                params: (params.method == 'get' || params.method == 'delete') ? options : '',
                 headers: params.headers,
-                data: params.data ? params.data : ''
+                data: (params.method == 'get' || params.method == 'delete') ? '' : options
             });
             latency = Date.now() - startTime;
             let data = fetchHeadersInfo(response);
